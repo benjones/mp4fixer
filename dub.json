@@ -1,0 +1,9 @@
+{
+	"authors": [
+		"Ben Jones"
+	],
+	"copyright": "Copyright © 2024, Ben Jones",
+	"description": "Fix MP4 files which were not properly finalized",
+	"license": "BSD-3-Clause",
+	"name": "mp4fixer"
+}

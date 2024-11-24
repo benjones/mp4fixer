@@ -1,0 +1,17 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/mp4fixer
+mp4fixer.so
+mp4fixer.dylib
+mp4fixer.dll
+mp4fixer.a
+mp4fixer.lib
+mp4fixer-test-*
+*.exe
+*.pdb
+*.o
+*.obj
+*.lst
+*~
