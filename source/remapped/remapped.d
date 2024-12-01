@@ -32,19 +32,19 @@ auto remapped(Layout)(ubyte[] data){
 
         enum fieldSize(T) = T.sizeof;
         alias sizes = staticMap!(fieldSize, fields);
-        pragma(msg, sizes);
+        //pragma(msg, sizes);
         //put 0 first since the first field start is at 0
         //we'll never read fieldStarts[N]
         enum fieldStarts = only(0, sizes).cumulativeFold!(function(ulong a, ulong b){
                 return a + b;
             })(0UL).array;
 
-        pragma(msg, fieldStarts);
+        //pragma(msg, fieldStarts);
 
         //TODO ubyte[] fields?
         static foreach(i, field; Fields!Layout){
 
-            pragma(msg, field.stringof ~ " " ~ fieldNames[i] ~ " " ~ fieldStarts[i]);
+            //pragma(msg, field.stringof ~ " " ~ fieldNames[i] ~ " " ~ fieldStarts[i]);
             //TODO: support little endian via an annotation
             auto opDispatch(string f)() if(f == fieldNames[i]){
                 static if(is(field: ubyte[N], ulong N)){

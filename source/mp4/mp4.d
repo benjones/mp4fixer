@@ -17,7 +17,9 @@ struct AtomHeader {
 }
 
 
-void prettyPrint(T)(const ref T val){
+//TODO: let template param be different from actual type
+//so we can prettyprint remapped stuff without doing opCast
+void prettyPrint(T)(const auto ref T val){
     writeln(T.stringof, "(");
 
     static foreach(fieldName; FieldNameTuple!T){
@@ -48,15 +50,53 @@ struct MVHDLayout {
     uint nextTrackId;
 }
 
+struct TrackHeaderLayout {
+    ubyte version_;
+    ubyte[3] flags;
+    uint creationTime;
+    uint modificationTime;
+    uint trackID;
+    ubyte[4] reserved;
+    uint duration;
+    ubyte[8] reserved2;
+    ushort layer;
+    ushort alternateGroup;
+    ushort volume;
+    ubyte[2] reserved3;
+    ubyte[36] matrixStructure;
+    uint trackWidth;
+    uint trackHeight;
+}
+
+struct EditListHeaderLayout {
+    ubyte version_;
+    ubyte[3] flags;
+    uint numEntries;
+}
+
+struct EditListEntry {
+    int trackDuration;
+    int mediaTime;
+    int mediaRate;
+}
+
 struct Trak {
     AtomHeader[] atoms;
+}
+
+
+struct ContainerAtom {
+    AtomHeader header;
+    alias this = header;
+    AtomHeader[] children;
 }
 
 struct MP4 {
     import std.mmfile;
 
     AtomHeader[] headers;
-    AtomHeader[] moovHeaders;
+
+    ContainerAtom moov;
 
     Trak[] traks;
 
@@ -77,17 +117,47 @@ struct MP4 {
             writeln("no moov atom");
         } else {
             assert(moovs.length == 1);
-            auto moovHeader = moovs.front;
-            with(moovHeader){
-                //+8 so we don't visit the moov atom's header
-                moovHeaders = parseAtoms(offset + 8,offset + size);
+            moov = toContainer(moovs.front);
 
-                traks = moovHeaders.filter!(x => x.type == "trak"[0..4])
-                    .map!(x => Trak(parseAtoms(x.offset + 8, x.offset + x.size)))
-                    .array;
+            traks = moov.children.filter!(x => x.type == "trak"[0..4])
+                .map!(x => Trak(parseAtoms(x.offset + 8, x.offset + x.size)))
+                .array;
+
+            foreach(trak; traks){
+                auto trakHeaders = trak.atoms.filter!(x => x.type == "tkhd");
+                if(trakHeaders.empty){
+                    writeln("no header for track");
+                } else {
+                    auto trakHeader = trakHeaders.front;
+                    auto trackHeader = data[trakHeader.offset + 8 .. $].remapped!TrackHeaderLayout;
+                    prettyPrint(cast(TrackHeaderLayout)trackHeader);
+                }
+
+                auto editLists = trak.atoms.filter!(x => x.type == "edts");
+                if(!editLists.empty){
+                    auto editList = toContainer(editLists.front);
+                    writeln("\nedit list: ");
+                    foreach(edit; editList.children){
+                        auto mappedHeader = data[edit.offset + 8 .. $].remapped!EditListHeaderLayout;
+                        writeln(cast(EditListHeaderLayout)mappedHeader);
+                        foreach(i; 0 .. mappedHeader.numEntries){
+                            auto entry = cast(EditListEntry)data[edit.offset + 16 .. $].remapped!EditListEntry;
+                            prettyPrint(entry);
+                        }
+                    }
+
+                    writeln();
+                }
             }
         }
 
+    }
+
+    ContainerAtom toContainer(AtomHeader header){
+        ContainerAtom ret;
+        ret.header = header;
+        ret.children = parseAtoms(header.offset + 8, header.offset + header.size);
+        return ret;
     }
 
     //todo, use start/stop rather than slice for absolute offsets?
@@ -119,7 +189,7 @@ struct MP4 {
 
     MVHDLayout moovHeaderData(){
         auto ret = MVHDLayout();
-        auto filtered = moovHeaders.filter!(x => x.type == "mvhd");
+        auto filtered = moov.children.filter!(x => x.type == "mvhd");
         if(filtered.empty) return ret;
 
         auto mvhdHeader = filtered.front;

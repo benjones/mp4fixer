@@ -14,7 +14,7 @@ int main(string[] args)
 
     movie.headers.each!writeln;
     writeln("\nmoov atom contents: ");
-    movie.moovHeaders.each!writeln;
+    movie.moov.children.each!writeln;
 
     auto moovHeaderData = movie.moovHeaderData;
     writeln();
