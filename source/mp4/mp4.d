@@ -5,6 +5,7 @@ import std.stdio;
 import std.algorithm;
 import std.array;
 import std.traits;
+import std.range;
 
 import remapped.remapped : remapped;
 
@@ -17,9 +18,8 @@ struct AtomHeader {
 }
 
 
-//TODO: let template param be different from actual type
-//so we can prettyprint remapped stuff without doing opCast
-void prettyPrint(T)(const auto ref T val){
+//accepts prettyPrint!RealStruct(remapped!RealStruct(data))
+void prettyPrint(T, U)(const auto ref U val){
     writeln(T.stringof, "(");
 
     static foreach(fieldName; FieldNameTuple!T){
@@ -27,6 +27,11 @@ void prettyPrint(T)(const auto ref T val){
     }
 
     writeln(")");
+}
+
+//works as expeted
+void prettyPrint(T)(const auto ref T val){
+    prettyPrint!(T,T)(val);
 }
 
 
@@ -80,8 +85,28 @@ struct EditListEntry {
     int mediaRate;
 }
 
-struct Trak {
-    AtomHeader[] atoms;
+
+struct MediaHeaderLayout {
+    ubyte version_;
+    ubyte[3] flags;
+    uint creationTime;
+    uint modificationTime;
+    uint timeScale;
+    uint duration;
+    ushort langauge;
+    ushort quality;
+}
+
+struct HandlerLayout {
+    ubyte version_;
+    ubyte[3] flags;
+    uint componentType;
+    uint componentSubtype;
+    uint componentManufacturer;
+    uint componentFlags;
+    uint componentFlagMask;
+    //cstring after this, I guess?  "counted string but based on hex dump,
+    //I don't see a length field
 }
 
 
@@ -91,6 +116,13 @@ struct ContainerAtom {
     AtomHeader[] children;
 }
 
+auto named(HeaderRange)(HeaderRange headers, string name)
+     if(isForwardRange!HeaderRange){
+         assert(name.length ==4);
+         return headers.filter!(x => x.type == name);
+}
+
+
 struct MP4 {
     import std.mmfile;
 
@@ -98,7 +130,7 @@ struct MP4 {
 
     ContainerAtom moov;
 
-    Trak[] traks;
+    ContainerAtom[] traks;
 
     MmFile mmFile;
     ubyte[] data;
@@ -112,33 +144,33 @@ struct MP4 {
         data = cast(ubyte[])(mmFile[]);
         headers = parseAtoms(0, data.length);
 
-        auto moovs = headers.filter!(x => x.type == "moov"[0 ..4]).array;
+        auto moovs = headers.named("moov");
         if(moovs.empty){
             writeln("no moov atom");
         } else {
-            assert(moovs.length == 1);
             moov = toContainer(moovs.front);
+            //assume there's just 1
 
-            traks = moov.children.filter!(x => x.type == "trak"[0..4])
-                .map!(x => Trak(parseAtoms(x.offset + 8, x.offset + x.size)))
+            traks = moov.children.named("trak")
+                .map!(x => toContainer(x))
                 .array;
 
             foreach(trak; traks){
-                auto trakHeaders = trak.atoms.filter!(x => x.type == "tkhd");
+                auto trakHeaders = trak.children.named("tkhd");
                 if(trakHeaders.empty){
                     writeln("no header for track");
                 } else {
                     auto trakHeader = trakHeaders.front;
-                    auto trackHeader = data[trakHeader.offset + 8 .. $].remapped!TrackHeaderLayout;
+                    auto trackHeader = atomData!TrackHeaderLayout(trakHeader);
                     prettyPrint(cast(TrackHeaderLayout)trackHeader);
                 }
 
-                auto editLists = trak.atoms.filter!(x => x.type == "edts");
+                auto editLists = trak.children.named("edts");
                 if(!editLists.empty){
                     auto editList = toContainer(editLists.front);
                     writeln("\nedit list: ");
                     foreach(edit; editList.children){
-                        auto mappedHeader = data[edit.offset + 8 .. $].remapped!EditListHeaderLayout;
+                        auto mappedHeader = atomData!EditListHeaderLayout(edit);
                         writeln(cast(EditListHeaderLayout)mappedHeader);
                         foreach(i; 0 .. mappedHeader.numEntries){
                             auto entry = cast(EditListEntry)data[edit.offset + 16 .. $].remapped!EditListEntry;
@@ -148,6 +180,27 @@ struct MP4 {
 
                     writeln();
                 }
+
+                trak.children.named("mdia")
+                    .map!(x => toContainer(x))
+                    .each!( delegate(ContainerAtom media){
+                            prettyPrint(media);
+                            media.children.named("mdhd")
+                                .each!( delegate(AtomHeader mdhd) {
+                                        auto mapped = mapAtomContents!MediaHeaderLayout(mdhd);
+                                        prettyPrint!MediaHeaderLayout(mapped);
+                                        //prettyPrint(cast(MediaHeaderLayout)mapped);
+                                    });
+
+                            media.children.named("minf")
+                                .each!( (AtomHeader minfHeader) {
+                                        auto minf = toContainer(minfHeader);
+                                        prettyPrint(minf);
+                                    });
+                        });
+
+
+
             }
         }
 
@@ -159,6 +212,37 @@ struct MP4 {
         ret.children = parseAtoms(header.offset + 8, header.offset + header.size);
         return ret;
     }
+
+    auto mapAtomContents(T)(AtomHeader ah){
+        // + 8 to ignore size + type fields
+        // should probably handle the case where size is 0...
+        assert(ah.size < uint.max);
+        return data[ah.offset + 8 .. $].remapped!T;
+    }
+
+    auto atomData(T)(AtomHeader header){
+        assert(header.size < int.max); //make sure we don't have a 64 bit size
+        return data[header.offset + 8 ..$].remapped!T;
+    }
+
+
+    auto at(string[] path) => at(headers, path);
+    auto at(ContainerAtom parent, string[] path) => at(parent.children, path);
+    auto at(AtomHeader parent, string[] path) => at(toContainer(parent).children, path);
+
+    private auto at(AtomHeader[] root, string[] path){
+        auto nextHeaders = root;
+        foreach(atom; path[0 .. $ -1]){
+            auto children = nextHeaders.named(atom);
+            assert(!children.empty);
+            auto first = children.front;
+            children.popFront;
+            assert(children.empty); //should be only 1
+            nextHeaders = toContainer(first).children;
+        }
+        return nextHeaders.named(path[$-1]);
+    }
+
 
     //todo, use start/stop rather than slice for absolute offsets?
     AtomHeader[] parseAtoms(ulong start, ulong stop){

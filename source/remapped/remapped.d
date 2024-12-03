@@ -46,7 +46,7 @@ auto remapped(Layout)(ubyte[] data){
 
             //pragma(msg, field.stringof ~ " " ~ fieldNames[i] ~ " " ~ fieldStarts[i]);
             //TODO: support little endian via an annotation
-            auto opDispatch(string f)() if(f == fieldNames[i]){
+            auto opDispatch(string f)() const if(f == fieldNames[i]){
                 static if(is(field: ubyte[N], ulong N)){
                     return data[fieldStarts[i] .. fieldStarts[i] + N][0 .. N];
                 } else {
