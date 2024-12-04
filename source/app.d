@@ -33,8 +33,17 @@ int main(string[] args)
             writeln(trak);
             auto minf = movie.toContainer(movie.at(trak, ["mdia","minf"]).front);
             writeln(minf);
+            minf.children.named("vmhd").map!(x => movie.mapAtomContents!VideoMediaInfoLayout(x))
+                .each!( vmhd => prettyPrint!VideoMediaInfoLayout(vmhd));
+
+            minf.children.named("smhd").map!(x => movie.mapAtomContents!SoundMediaInfoLayout(x))
+                .each!( vmhd => prettyPrint!SoundMediaInfoLayout(vmhd));
+
         });
 
+
+    writeln("\n\ndump\n");
+    movie.dumpAtomTree();
 
     return 0;
 }

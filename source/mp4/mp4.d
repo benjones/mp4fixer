@@ -23,7 +23,7 @@ void prettyPrint(T, U)(const auto ref U val){
     writeln(T.stringof, "(");
 
     static foreach(fieldName; FieldNameTuple!T){
-        writeln(fieldName, ": ", __traits(getMember, val, fieldName));
+        writeln("  " ~ fieldName, ": ", __traits(getMember, val, fieldName));
     }
 
     writeln(")");
@@ -34,7 +34,11 @@ void prettyPrint(T)(const auto ref T val){
     prettyPrint!(T,T)(val);
 }
 
+// annotate the atom data, for some future
+// meta programming reason
+struct NamedAtom(string name) {};
 
+@NamedAtom!"mvhd"
 struct MVHDLayout {
     ubyte version_;
     ubyte[3] flags;
@@ -55,6 +59,7 @@ struct MVHDLayout {
     uint nextTrackId;
 }
 
+@NamedAtom!"tkhd"
 struct TrackHeaderLayout {
     ubyte version_;
     ubyte[3] flags;
@@ -73,11 +78,13 @@ struct TrackHeaderLayout {
     uint trackHeight;
 }
 
+@NamedAtom!"elst"
 struct EditListHeaderLayout {
     ubyte version_;
     ubyte[3] flags;
     uint numEntries;
 }
+
 
 struct EditListEntry {
     int trackDuration;
@@ -86,6 +93,7 @@ struct EditListEntry {
 }
 
 
+@NamedAtom!"mdhd"
 struct MediaHeaderLayout {
     ubyte version_;
     ubyte[3] flags;
@@ -97,6 +105,7 @@ struct MediaHeaderLayout {
     ushort quality;
 }
 
+@NamedAtom!"hdlr"
 struct HandlerLayout {
     ubyte version_;
     ubyte[3] flags;
@@ -110,10 +119,33 @@ struct HandlerLayout {
 }
 
 
+@NamedAtom!"vmhd"
+struct VideoMediaInfoLayout {
+    ubyte version_;
+    ubyte[3] flags;
+    ushort graphicsMode;
+    ubyte[6] opcolor; //really ushort[3], but ignoring that
+}
+
+@NamedAtom!"smhd"
+struct SoundMediaInfoLayout {
+    ubyte version_;
+    ubyte[3] flags;
+    ushort balance;
+    ushort reserved;
+}
+
 struct ContainerAtom {
     AtomHeader header;
     alias this = header;
     AtomHeader[] children;
+}
+
+
+//todo enum template?
+bool isContainerAtom(T)(auto ref T name){
+    static const containers = ["mdia","minf","moov", "stbl", "trak"];
+    return containers.canFind(name);
 }
 
 auto named(HeaderRange)(HeaderRange headers, string name)
@@ -281,4 +313,23 @@ struct MP4 {
         ret = cast(MVHDLayout)wrapper;
         return ret;
     }
+
+    void dumpAtomTree(){
+        import std.conv : to;
+        import std.range;
+
+        void dumpHelper(AtomHeader header, int level){
+            string prefix = repeat(" ", level*2).joiner("").to!string;
+            writeln(prefix, header.type);
+            if(header.type.isContainerAtom){
+                auto container = toContainer(header);
+                container.children.each!((AtomHeader x){
+                        dumpHelper(x, level +1);
+                    });
+            }
+        }
+
+        headers.each!(x => dumpHelper(x, 0));
+    }
+
 }
