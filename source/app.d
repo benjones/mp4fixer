@@ -39,7 +39,30 @@ int main(string[] args)
             minf.children.named("smhd").map!(x => movie.mapAtomContents!SoundMediaInfoLayout(x))
                 .each!( vmhd => prettyPrint!SoundMediaInfoLayout(vmhd));
 
+            minf.children.named("dinf").map!( x => movie.toContainer(x)).each!( (dinf){
+                    dinf.children.named("dref")
+                        .each!( (drefHeader){
+                                auto dref = movie.mapAtomContents!DataReferenceLayout(drefHeader);
+                                prettyPrint!DataReferenceLayout(dref);
+                                auto dataEntries = movie.parseAtoms(drefHeader.offset + 16,
+                                                                    drefHeader.offset + drefHeader.size);
+
+                                foreach(entry; dataEntries){
+                                    writeln(entry);
+                                    writeln(cast(char[])movie.data[entry.offset + 8 .. entry.offset + 8 + entry.size]);
+                                }
+                            });
+
+                });
+
+            auto hdlr = movie.at(trak, ["mdia","hdlr"]);
+            hdlr.map!(x => movie.mapAtomContents!HandlerLayout(x))
+                .each!(x => prettyPrint!HandlerLayout(x));
+
+
         });
+
+
 
 
     writeln("\n\ndump\n");

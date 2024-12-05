@@ -36,9 +36,9 @@ void prettyPrint(T)(const auto ref T val){
 
 // annotate the atom data, for some future
 // meta programming reason
-struct NamedAtom(string name) {};
+struct NamedAtom {string name;}
 
-@NamedAtom!"mvhd"
+@NamedAtom("mvhd")
 struct MVHDLayout {
     ubyte version_;
     ubyte[3] flags;
@@ -59,7 +59,7 @@ struct MVHDLayout {
     uint nextTrackId;
 }
 
-@NamedAtom!"tkhd"
+@NamedAtom("tkhd")
 struct TrackHeaderLayout {
     ubyte version_;
     ubyte[3] flags;
@@ -78,7 +78,7 @@ struct TrackHeaderLayout {
     uint trackHeight;
 }
 
-@NamedAtom!"elst"
+@NamedAtom("elst")
 struct EditListHeaderLayout {
     ubyte version_;
     ubyte[3] flags;
@@ -93,7 +93,7 @@ struct EditListEntry {
 }
 
 
-@NamedAtom!"mdhd"
+@NamedAtom("mdhd")
 struct MediaHeaderLayout {
     ubyte version_;
     ubyte[3] flags;
@@ -105,12 +105,12 @@ struct MediaHeaderLayout {
     ushort quality;
 }
 
-@NamedAtom!"hdlr"
+@NamedAtom("hdlr")
 struct HandlerLayout {
     ubyte version_;
     ubyte[3] flags;
-    uint componentType;
-    uint componentSubtype;
+    char[4] componentType;
+    char[4] componentSubtype;
     uint componentManufacturer;
     uint componentFlags;
     uint componentFlagMask;
@@ -119,7 +119,7 @@ struct HandlerLayout {
 }
 
 
-@NamedAtom!"vmhd"
+@NamedAtom("vmhd")
 struct VideoMediaInfoLayout {
     ubyte version_;
     ubyte[3] flags;
@@ -127,12 +127,26 @@ struct VideoMediaInfoLayout {
     ubyte[6] opcolor; //really ushort[3], but ignoring that
 }
 
-@NamedAtom!"smhd"
+@NamedAtom("smhd")
 struct SoundMediaInfoLayout {
     ubyte version_;
     ubyte[3] flags;
     ushort balance;
     ushort reserved;
+}
+
+@NamedAtom("dref")
+struct DataReferenceLayout {
+    ubyte version_;
+    ubyte[3] flags;
+    uint numEntries;
+}
+
+//atom header for 'alis', 'rsrc', or 'url ', + version, flags, ubyt[]
+struct DataReferenceEntry {
+    uint size;
+    ubyte[4] type; //really char[4]
+
 }
 
 struct ContainerAtom {
@@ -144,7 +158,7 @@ struct ContainerAtom {
 
 //todo enum template?
 bool isContainerAtom(T)(auto ref T name){
-    static const containers = ["mdia","minf","moov", "stbl", "trak"];
+    static const containers = ["dinf", "mdia","minf","moov", "stbl", "trak"];
     return containers.canFind(name);
 }
 
@@ -321,6 +335,7 @@ struct MP4 {
         void dumpHelper(AtomHeader header, int level){
             string prefix = repeat(" ", level*2).joiner("").to!string;
             writeln(prefix, header.type);
+            dumpAtom(header);
             if(header.type.isContainerAtom){
                 auto container = toContainer(header);
                 container.children.each!((AtomHeader x){
@@ -330,6 +345,23 @@ struct MP4 {
         }
 
         headers.each!(x => dumpHelper(x, 0));
+        dumpAtom(AtomHeader.init);
+    }
+
+    void dumpAtom(AtomHeader header){
+        alias thisModule = __traits(parent, NamedAtom);
+        alias namedAtoms = getSymbolsByUDA!(thisModule, NamedAtom);
+        pragma(msg, "num named atoms: ");
+        pragma(msg, namedAtoms.length);
+        bool foundAny = false;
+        static foreach(i, atomType; namedAtoms){
+            pragma(msg, namedAtoms[i]);
+            if(!foundAny && header.type == getUDAs!(atomType, NamedAtom)[0].name){
+                prettyPrint!atomType(atomData!atomType(header));
+               foundAny = true;
+            }
+        }
+        //if(!foundAny){ } //anything?
     }
 
 }

@@ -48,7 +48,8 @@ auto remapped(Layout)(ubyte[] data){
             //TODO: support little endian via an annotation
             auto opDispatch(string f)() const if(f == fieldNames[i]){
                 static if(is(field: ubyte[N], ulong N)){
-                    return data[fieldStarts[i] .. fieldStarts[i] + N][0 .. N];
+                    //cast to handle char[] without any fuss
+                    return cast(field)(data[fieldStarts[i] .. fieldStarts[i] + N][0 .. N]);
                 } else {
                     return data[fieldStarts[i] .. $].peek!field;
                 }
@@ -57,7 +58,8 @@ auto remapped(Layout)(ubyte[] data){
             //bitmanip.write only supports integral types
             void opDispatch(string f)(field val) if(f == fieldNames[i]){
                 static if(is(field: ubyte[N], ulong N)){
-                    data[fieldStarts[i] .. fieldStarts[i] + N] = val[];
+                    //cast lets us handle char[] without any fuss
+                    data[fieldStarts[i] .. fieldStarts[i] + N] = cast(ubyte[])(val[]);
                 } else static if(isIntegral!field){
                     data[fieldStarts[i] .. $].write!field(val, 0);
                 } else {
@@ -112,7 +114,7 @@ unittest {
     S1 native = cast(S1)s1r;
     assert(native.x == 0x07060504);
     s1r.d = [1,2,3,4];
-    assert(s1r.d.equal([1,2,3,4]));
+    assert(s1r.d[].equal([1,2,3,4]));
 
     S1 other;
     other.x = 1025;
@@ -123,4 +125,15 @@ unittest {
     assert(s1r.y == 0x7777777777);
     assert(data[3] == 1); //LSB of 1025, big endian layout
     assert(data[12 .. 16].equal([8,9,10,11]));
+
+
+    struct S3{
+        char[4] type;
+    }
+
+    ubyte[4] data2;
+    auto s3r = remapped!S3(data2);
+    s3r.type = "abcd";
+    assert(s3r.type == "abcd");
+assert(cast(char[])data2 == "abcd");
 }
