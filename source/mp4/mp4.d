@@ -6,6 +6,7 @@ import std.algorithm;
 import std.array;
 import std.traits;
 import std.range;
+import std.conv : to;
 
 import remapped.remapped : remapped;
 
@@ -19,19 +20,19 @@ struct AtomHeader {
 
 
 //accepts prettyPrint!RealStruct(remapped!RealStruct(data))
-void prettyPrint(T, U)(const auto ref U val){
-    writeln(T.stringof, "(");
-
+void prettyPrint(T, U)(const auto ref U val, int indentLevel = 0){
+    string prefix = repeat(" ", indentLevel*2).joiner("").to!string;
+    writeln(prefix, T.stringof, "(");
     static foreach(fieldName; FieldNameTuple!T){
-        writeln("  " ~ fieldName, ": ", __traits(getMember, val, fieldName));
+        writeln(prefix, "  ", fieldName, ": ", __traits(getMember, val, fieldName));
     }
 
-    writeln(")");
+    writeln(prefix, ")");
 }
 
 //works as expeted
-void prettyPrint(T)(const auto ref T val){
-    prettyPrint!(T,T)(val);
+void prettyPrint(T)(const auto ref T val, int indentLevel = 0){
+    prettyPrint!(T,T)(val, indentLevel);
 }
 
 // annotate the atom data, for some future
@@ -158,7 +159,7 @@ struct ContainerAtom {
 
 //todo enum template?
 bool isContainerAtom(T)(auto ref T name){
-    static const containers = ["dinf", "mdia","minf","moov", "stbl", "trak"];
+    static const containers = ["dinf", "edts", "mdia","minf","moov", "stbl", "trak"];
     return containers.canFind(name);
 }
 
@@ -335,7 +336,7 @@ struct MP4 {
         void dumpHelper(AtomHeader header, int level){
             string prefix = repeat(" ", level*2).joiner("").to!string;
             writeln(prefix, header.type);
-            dumpAtom(header);
+            dumpAtom(header, level);
             if(header.type.isContainerAtom){
                 auto container = toContainer(header);
                 container.children.each!((AtomHeader x){
@@ -348,7 +349,7 @@ struct MP4 {
         dumpAtom(AtomHeader.init);
     }
 
-    void dumpAtom(AtomHeader header){
+    void dumpAtom(AtomHeader header, int indentLevel = 0){
         alias thisModule = __traits(parent, NamedAtom);
         alias namedAtoms = getSymbolsByUDA!(thisModule, NamedAtom);
         pragma(msg, "num named atoms: ");
@@ -357,7 +358,7 @@ struct MP4 {
         static foreach(i, atomType; namedAtoms){
             pragma(msg, namedAtoms[i]);
             if(!foundAny && header.type == getUDAs!(atomType, NamedAtom)[0].name){
-                prettyPrint!atomType(atomData!atomType(header));
+                prettyPrint!atomType(atomData!atomType(header), indentLevel);
                foundAny = true;
             }
         }
