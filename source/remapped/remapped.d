@@ -10,16 +10,17 @@ module remapped.remapped;
  */
 
 
+import std.traits : Fields, FieldNameTuple, isIntegral, isArray;
+import std.meta : staticMap;
+import std.range : only;
+import std.algorithm.iteration: cumulativeFold, sum;
+import std.array;
+import std.bitmanip: peek, write;
 
 
-auto remapped(Layout)(ubyte[] data){
+auto remapped(Layout)(ubyte[] data)
+{
 
-    import std.traits : Fields, FieldNameTuple, isIntegral;
-    import std.meta : staticMap;
-    import std.range : only;
-    import std.algorithm.iteration: cumulativeFold;
-    import std.array;
-    import std.bitmanip: peek, write;
 
     struct Ret {
         private ubyte[] data;
@@ -89,6 +90,39 @@ auto remapped(Layout)(ubyte[] data){
 }
 
 
+auto remapped(Layout: Layout[])(ubyte[] data){
+
+    alias fields = Fields!Layout;
+    enum fieldSize(T) = T.sizeof;
+    alias sizes = staticMap!(fieldSize, fields);
+    enum stride = sum(only(sizes));
+
+    struct Ret {
+        private ubyte[] data;
+        this(ubyte[] data_){data = data_;}
+
+        auto opIndex(size_t i){
+            return remapped!Layout(data[i*stride .. (i+1)*stride]);
+        }
+
+        auto opIndexAssign(Layout value, size_t i){
+            remapped!Layout(data[i*stride .. (i+1)*stride]) = value;
+        }
+
+        size_t opDollar() const {
+            size_t ret = data.length/stride;
+            assert(ret*stride == data.length); //no partial elements
+            return ret;
+        }
+
+        alias length = opDollar;
+    }
+    return Ret(data);
+}
+
+
+
+
 unittest {
 
     import std.algorithm;
@@ -135,5 +169,31 @@ unittest {
     auto s3r = remapped!S3(data2);
     s3r.type = "abcd";
     assert(s3r.type == "abcd");
-assert(cast(char[])data2 == "abcd");
+    assert(cast(char[])data2 == "abcd");
+}
+
+//test array stuff
+unittest {
+
+    struct S{
+        ushort a;
+        uint b;
+    }
+
+    ubyte[6*3] data;
+    auto mappedArray = remapped!(S[])(data[]);
+    mappedArray[0].a = 0x1234;
+
+    assert(data[0] == 0x12);
+    assert(data[1] == 0x34);
+
+
+    mappedArray[2].b = 0xAABBCCDD;
+    assert(data[14 .. 18] == [0xAA, 0xBB, 0xCC, 0xDD]);
+
+    mappedArray[1] = S(1, 2);
+    assert(data[6 .. 12] == [0,1,0,0,0,2]);
+
+    assert(mappedArray.length == 3);
+
 }
