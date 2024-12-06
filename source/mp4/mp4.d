@@ -39,6 +39,13 @@ void prettyPrint(T)(const auto ref T val, int indentLevel = 0){
 // meta programming reason
 struct NamedAtom {string name;}
 
+@NamedAtom("ftyp")
+struct FileTypeLayout {
+    char[4] brand;
+    uint version_;
+    //list of compatible brands for the rest of the atom
+}
+
 @NamedAtom("mvhd")
 struct MVHDLayout {
     ubyte version_;
@@ -142,6 +149,97 @@ struct DataReferenceLayout {
     ubyte[3] flags;
     uint numEntries;
 }
+
+@NamedAtom("stsd")
+struct SampleDescriptionLayout {
+    ubyte version_;
+    ubyte[3] flags;
+    uint numEntries;
+}
+
+@NamedAtom("stts")
+struct TimeToSampleLayout {
+    ubyte version_;
+    ubyte[3] flags;
+    uint numEntries;
+}
+
+@NamedAtom("stsc")
+struct SampleToChunkLayout {
+    ubyte version_;
+    ubyte[3] flags;
+    uint numEntries;
+}
+
+@NamedAtom("stss")
+struct SyncSampleLayout {
+    ubyte version_;
+    ubyte[3] flags;
+    uint numEntries;
+}
+
+@NamedAtom("stsz")
+struct SampleSizeLayout {
+    ubyte version_;
+    ubyte[3] flags;
+    uint sampleSize;
+    uint numEntries;
+}
+
+@NamedAtom("stco")
+struct ChunkOffsetLayout {
+    ubyte version_;
+    ubyte[3] flags;
+    uint numEntries;
+}
+
+@NamedAtom("sgpd")
+struct SampleGroupDescriptionLayout {
+    ubyte version_;
+    ubyte[3] flags;
+    char[4] groupingType;
+    uint defaultLength;
+    uint entryCount;
+    //data is array of ushorts
+}
+
+@NamedAtom("sbgp")
+struct SampleToGroupLayout {
+    ubyte version_;
+    ubyte[3] flags;
+    char[4] groupingType;
+    uint defaultLength;
+    uint entryCount;
+    //data is array of count/index pairs
+    //https://developer.apple.com/documentation/quicktime-file-format/sample-to-group_atom
+}
+
+@NamedAtom("sdtp")
+struct SampleDependencyFlagsLayout {
+    ubyte version_;
+    ubyte[3] flags;
+    //number or entries is stsz's numEntries
+    //variable length of 1 byte entries
+}
+
+@NamedAtom("ctts")
+struct CompositionOffsetLayout {
+    ubyte version_;
+    ubyte[3] flags;
+    uint entryCount;
+}
+
+struct TimeToSampleEntry {
+    uint count;
+    uint duration;
+}
+
+struct SampleToChunkEntry {
+    uint firstChunk;
+    uint samplesPerChunk;
+    uint sampleDescriptionID;
+}
+
 
 //atom header for 'alis', 'rsrc', or 'url ', + version, flags, ubyt[]
 struct DataReferenceEntry {
