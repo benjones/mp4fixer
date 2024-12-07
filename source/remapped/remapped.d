@@ -18,6 +18,13 @@ import std.array;
 import std.bitmanip: peek, write;
 
 
+template totalFieldSize(T){
+    alias fields = Fields!T;
+    enum fieldSize(X) = X.sizeof;
+    alias sizes = staticMap!(fieldSize, fields);
+    enum totalFieldSize = sum(only(sizes));
+}
+
 auto remapped(Layout)(ubyte[] data)
 {
 
@@ -92,10 +99,7 @@ auto remapped(Layout)(ubyte[] data)
 
 private struct RemappedArray(Layout: Layout[]){
 
-    alias fields = Fields!Layout;
-    enum fieldSize(T) = T.sizeof;
-    alias sizes = staticMap!(fieldSize, fields);
-    enum stride = sum(only(sizes));
+    enum stride = totalFieldSize!Layout;
 
     private ubyte[] data;
     this(ubyte[] data_){data = data_;}

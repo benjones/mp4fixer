@@ -8,7 +8,7 @@ import std.traits;
 import std.range;
 import std.conv : to;
 
-import remapped.remapped : remapped;
+import remapped.remapped : remapped, totalFieldSize;
 
 struct AtomHeader {
     //todo handle extended sizes
@@ -463,10 +463,16 @@ struct MP4 {
             if(!foundAny && header.type == getUDAs!(atomType, NamedAtom)[0].name){
                 prettyPrint!atomType(atomData!atomType(header), indentLevel);
 
-                static foreach(j, symbol; getSymbolsByUDA!(atomType, ArrayOf)){
+                static foreach(j, symbol; getSymbolsByUDA!(atomType, ArrayOf)){{
                         pragma(msg, "   " ~ symbol.stringof);
+                        alias elementType = getUDAs!(symbol, ArrayOf)[0].ElementType;
                         pragma(msg, "Array of " ~ getUDAs!(symbol, ArrayOf)[0].ElementType.stringof);
-                }
+                        auto mappedArray = remapped!(elementType[])(data[header.offset + 8 + totalFieldSize!atomType ..
+                                                                         header.offset + header.size]);
+                        mappedArray[0 .. min(5, mappedArray.length)].each!(x =>
+                                                                            prettyPrint!elementType(x, indentLevel +1));
+
+                    }}
                foundAny = true;
             }
         }
