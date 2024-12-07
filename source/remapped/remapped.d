@@ -90,34 +90,56 @@ auto remapped(Layout)(ubyte[] data)
 }
 
 
-auto remapped(Layout: Layout[])(ubyte[] data){
+private struct RemappedArray(Layout: Layout[]){
 
     alias fields = Fields!Layout;
     enum fieldSize(T) = T.sizeof;
     alias sizes = staticMap!(fieldSize, fields);
     enum stride = sum(only(sizes));
 
-    struct Ret {
-        private ubyte[] data;
-        this(ubyte[] data_){data = data_;}
+    private ubyte[] data;
+    this(ubyte[] data_){data = data_;}
 
-        auto opIndex(size_t i){
-            return remapped!Layout(data[i*stride .. (i+1)*stride]);
-        }
-
-        auto opIndexAssign(Layout value, size_t i){
-            remapped!Layout(data[i*stride .. (i+1)*stride]) = value;
-        }
-
-        size_t opDollar() const {
-            size_t ret = data.length/stride;
-            assert(ret*stride == data.length); //no partial elements
-            return ret;
-        }
-
-        alias length = opDollar;
+    typeof(remapped!Layout([])) opIndex(size_t i){
+        return remapped!Layout(data[i*stride .. (i+1)*stride]);
     }
-    return Ret(data);
+
+    void opIndexAssign(Layout value, size_t i){
+        remapped!Layout(data[i*stride .. (i+1)*stride]) = value;
+    }
+
+    size_t opDollar() const {
+        size_t ret = data.length/stride;
+        assert(ret*stride == data.length); //no partial elements
+        return ret;
+    }
+
+    alias length = opDollar;
+
+
+    RemappedArray!(Layout[]) opSlice(size_t i, size_t j)
+    {
+        return remapped!(Layout[])(data[i*stride .. j*stride]);
+    }
+
+    //range stuff
+
+    bool empty(){
+        return data.length == 0;
+    }
+
+    auto front(){
+        return this[0];
+    }
+
+    void popFront(){
+        data = data[stride .. $];
+    }
+
+}
+
+auto remapped(Layout: Layout[])(ubyte[] data){
+    return RemappedArray!(Layout[])(data);
 }
 
 
@@ -195,5 +217,14 @@ unittest {
     assert(data[6 .. 12] == [0,1,0,0,0,2]);
 
     assert(mappedArray.length == 3);
+
+
+    auto unmapped = mappedArray[1UL .. $];
+    assert(unmapped[0].a == mappedArray[1].a);
+    assert(unmapped[1].b == mappedArray[2].b);
+
+    import std.algorithm : map;
+    auto mappedAs = mappedArray[0 .. 2].map!(x => x.a + 2).array;
+    assert(mappedAs == [0x1236, 3]);
 
 }

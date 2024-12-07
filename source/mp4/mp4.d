@@ -35,9 +35,11 @@ void prettyPrint(T)(const auto ref T val, int indentLevel = 0){
     prettyPrint!(T,T)(val, indentLevel);
 }
 
-// annotate the atom data, for some future
-// meta programming reason
+// annotate the atom data, used in dumping, maybe other places in the future
 struct NamedAtom {string name;}
+
+// annotate fields as being arrays, also for dumping, right now
+struct ArrayOf(T){ alias ElementType = T;}
 
 @NamedAtom("ftyp")
 struct FileTypeLayout {
@@ -90,7 +92,10 @@ struct TrackHeaderLayout {
 struct EditListHeaderLayout {
     ubyte version_;
     ubyte[3] flags;
+
+    @ArrayOf!EditListEntry
     uint numEntries;
+
 }
 
 
@@ -457,6 +462,11 @@ struct MP4 {
             pragma(msg, namedAtoms[i]);
             if(!foundAny && header.type == getUDAs!(atomType, NamedAtom)[0].name){
                 prettyPrint!atomType(atomData!atomType(header), indentLevel);
+
+                static foreach(j, symbol; getSymbolsByUDA!(atomType, ArrayOf)){
+                        pragma(msg, "   " ~ symbol.stringof);
+                        pragma(msg, "Array of " ~ getUDAs!(symbol, ArrayOf)[0].ElementType.stringof);
+                }
                foundAny = true;
             }
         }
