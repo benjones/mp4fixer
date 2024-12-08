@@ -148,10 +148,14 @@ struct SoundMediaInfoLayout {
     ushort reserved;
 }
 
+
 @NamedAtom("dref")
 struct DataReferenceLayout {
     ubyte version_;
     ubyte[3] flags;
+    // can't do a normal array cast here, since the children are
+    // variably sized
+    //ideally @ArraryOf...
     uint numEntries;
 }
 
@@ -159,6 +163,10 @@ struct DataReferenceLayout {
 struct SampleDescriptionLayout {
     ubyte version_;
     ubyte[3] flags;
+    // can't do a normal array cast here, since the children are
+    // variably sized
+    //ideally @ArraryOf...
+
     uint numEntries;
 }
 
@@ -180,6 +188,8 @@ struct SampleToChunkLayout {
 struct SyncSampleLayout {
     ubyte version_;
     ubyte[3] flags;
+
+    @ArrayOf!TimeToSampleEntry
     uint numEntries;
 }
 
@@ -188,14 +198,25 @@ struct SampleSizeLayout {
     ubyte version_;
     ubyte[3] flags;
     uint sampleSize;
+
+    @ArrayOf!SampleSizeEntry
     uint numEntries;
+}
+
+struct SampleSizeEntry{
+    uint sampleSize;
 }
 
 @NamedAtom("stco")
 struct ChunkOffsetLayout {
     ubyte version_;
     ubyte[3] flags;
+    @ArrayOf!ChunkOffsetEntry
     uint numEntries;
+}
+
+struct ChunkOffsetEntry{
+    uint chunkOffset; //I think uint?, based on a sample file
 }
 
 @NamedAtom("sgpd")
@@ -204,8 +225,14 @@ struct SampleGroupDescriptionLayout {
     ubyte[3] flags;
     char[4] groupingType;
     uint defaultLength;
+
+    @ArrayOf!RollDistanceEntry
     uint entryCount;
-    //data is array of ushorts
+    //data is array of shorts
+}
+
+struct RollDistanceEntry{
+    short rollDistance; //I think will always be -1 for stuff I care about
 }
 
 @NamedAtom("sbgp")
@@ -213,10 +240,17 @@ struct SampleToGroupLayout {
     ubyte version_;
     ubyte[3] flags;
     char[4] groupingType;
-    uint defaultLength;
+    //uint defaultLength; apparently wrong in the doc?  Doesn't make sense based on the format
+
+    @ArrayOf!SampleGroupTableEntry
     uint entryCount;
     //data is array of count/index pairs
     //https://developer.apple.com/documentation/quicktime-file-format/sample-to-group_atom
+}
+
+struct SampleGroupTableEntry {
+    uint sampleCount;
+    uint groupDescriptionIndex;
 }
 
 @NamedAtom("sdtp")
@@ -460,21 +494,29 @@ struct MP4 {
         bool foundAny = false;
         static foreach(i, atomType; namedAtoms){
             pragma(msg, namedAtoms[i]);
-            if(!foundAny && header.type == getUDAs!(atomType, NamedAtom)[0].name){
-                prettyPrint!atomType(atomData!atomType(header), indentLevel);
+            if(!foundAny && header.type == getUDAs!(atomType, NamedAtom)[0].name){{
+                    auto atomBody = atomData!atomType(header);
+                    prettyPrint!atomType(atomBody, indentLevel);
 
                 static foreach(j, symbol; getSymbolsByUDA!(atomType, ArrayOf)){{
                         pragma(msg, "   " ~ symbol.stringof);
                         alias elementType = getUDAs!(symbol, ArrayOf)[0].ElementType;
                         pragma(msg, "Array of " ~ getUDAs!(symbol, ArrayOf)[0].ElementType.stringof);
-                        auto mappedArray = remapped!(elementType[])(data[header.offset + 8 + totalFieldSize!atomType ..
-                                                                         header.offset + header.size]);
+                        //alias symbolGetter = __traits(getMember, atomBody, symbol.stringof);
+                        auto start = header.offset + 8 + totalFieldSize!atomType;
+                        auto mappedArray =
+                            remapped!(elementType[])(data[ start ..
+                                                           //using this hack because typeof(atomBody)
+                                                           //isn't the same as atomType
+                                                           start + mixin("atomBody." ~ symbol.stringof)*
+                                                          totalFieldSize!elementType]);
+
                         mappedArray[0 .. min(5, mappedArray.length)].each!(x =>
                                                                             prettyPrint!elementType(x, indentLevel +1));
 
                     }}
                foundAny = true;
-            }
+                }}
         }
         //if(!foundAny){ } //anything?
     }
