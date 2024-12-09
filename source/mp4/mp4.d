@@ -157,6 +157,8 @@ struct DataReferenceLayout {
     // variably sized
     //ideally @ArraryOf...
     uint numEntries;
+
+    //in my examples, the body is {size 12, "url ", version + flags == 0, no data}
 }
 
 @NamedAtom("stsd")
@@ -167,15 +169,49 @@ struct SampleDescriptionLayout {
     // variably sized
     //ideally @ArraryOf...
 
+
+
     uint numEntries;
+}
+
+// https://developer.apple.com/documentation/quicktime-file-format/video_sample_description
+// Applies to more general video description stuff, but I'll just name it avc1
+// since that what I'll get for presenterMode videos
+@NamedAtom("avc1")
+struct avc1DescriptionLayout{
+    ubyte[6] reserved;
+    ushort dataReferenceIndex;
+    ushort version_;
+    ushort revision;
+    char[4] vendor;
+    uint temporalQuality;
+    uint spatialQuality;
+    ushort width;
+    ushort height;
+    uint horizontalResolution; //fixed point, pixels per inch
+    uint verticalResolution;
+    uint dataSize;
+    ushort frameCount; //per sample
+    ubyte[32] compressorName; //first byte is length, rest are chars
+    ushort pixelDepth;
+    short colorTableId;
+
 }
 
 @NamedAtom("stts")
 struct TimeToSampleLayout {
     ubyte version_;
     ubyte[3] flags;
+
+    @ArrayOf!TimeToSampleEntry
     uint numEntries;
 }
+
+struct TimeToSampleEntry {
+    uint count;
+    uint duration;
+}
+
 
 @NamedAtom("stsc")
 struct SampleToChunkLayout {
@@ -265,13 +301,16 @@ struct SampleDependencyFlagsLayout {
 struct CompositionOffsetLayout {
     ubyte version_;
     ubyte[3] flags;
+
+    @ArrayOf!CompositionOffsetEntry
     uint entryCount;
 }
 
-struct TimeToSampleEntry {
-    uint count;
-    uint duration;
+struct CompositionOffsetEntry{
+    uint sampleCount;
+    uint compositionOffset;
 }
+
 
 struct SampleToChunkEntry {
     uint firstChunk;
@@ -293,12 +332,22 @@ struct ContainerAtom {
     AtomHeader[] children;
 }
 
+struct ContainerWithHeader(T) {
+    AtomHeader header;
+    ReturnType!(() => remapped!T(cast(ubyte[])[])) containerHeader;
+    AtomHeader[] children;
+
+}
+
 
 //todo enum template?
 bool isContainerAtom(T)(auto ref T name){
     static const containers = ["dinf", "edts", "mdia","minf","moov", "stbl", "trak"];
     return containers.canFind(name);
 }
+
+static const containersWithHeader = ["avc1", "stsd"];
+
 
 auto named(HeaderRange)(HeaderRange headers, string name)
      if(isForwardRange!HeaderRange){
@@ -345,7 +394,7 @@ struct MP4 {
                     writeln("no header for track");
                 } else {
                     auto trakHeader = trakHeaders.front;
-                    auto trackHeader = atomData!TrackHeaderLayout(trakHeader);
+                    auto trackHeader = mapAtomContents!TrackHeaderLayout(trakHeader);
                     prettyPrint(cast(TrackHeaderLayout)trackHeader);
                 }
 
@@ -354,7 +403,7 @@ struct MP4 {
                     auto editList = toContainer(editLists.front);
                     writeln("\nedit list: ");
                     foreach(edit; editList.children){
-                        auto mappedHeader = atomData!EditListHeaderLayout(edit);
+                        auto mappedHeader = mapAtomContents!EditListHeaderLayout(edit);
                         writeln(cast(EditListHeaderLayout)mappedHeader);
                         foreach(i; 0 .. mappedHeader.numEntries){
                             auto entry = cast(EditListEntry)data[edit.offset + 16 .. $].remapped!EditListEntry;
@@ -397,17 +446,24 @@ struct MP4 {
         return ret;
     }
 
+    auto toContainerWithHeader(HeaderType)(AtomHeader header){
+        auto ret = ContainerWithHeader!HeaderType();
+        ret.header = header;
+        ret.containerHeader = mapAtomContents!HeaderType(header);
+
+        ret.children = parseAtoms(header.offset + 8 + totalFieldSize!HeaderType,
+                              header.offset + header.size);
+        return ret;
+    }
+
     auto mapAtomContents(T)(AtomHeader ah){
         // + 8 to ignore size + type fields
         // should probably handle the case where size is 0...
         assert(ah.size < uint.max);
-        return data[ah.offset + 8 .. $].remapped!T;
+        return data[ah.offset + 8 .. ah.offset + ah.size].remapped!T;
     }
 
-    auto atomData(T)(AtomHeader header){
-        assert(header.size < int.max); //make sure we don't have a 64 bit size
-        return data[header.offset + 8 ..$].remapped!T;
-    }
+
 
 
     auto at(string[] path) => at(headers, path);
@@ -466,6 +522,18 @@ struct MP4 {
         return ret;
     }
 
+    private alias thisModule = __traits(parent, NamedAtom);
+    private alias namedAtoms = getSymbolsByUDA!(thisModule, NamedAtom);
+
+    private template AtomFromName(string name){
+        static foreach(atomType; namedAtoms){
+            static if(getUDAs!(atomType, NamedAtom)[0].name == name){
+                alias AtomFromName = atomType;
+            }
+        }
+    }
+
+
     void dumpAtomTree(){
         import std.conv : to;
         import std.range;
@@ -479,6 +547,18 @@ struct MP4 {
                 container.children.each!((AtomHeader x){
                         dumpHelper(x, level +1);
                     });
+            } else if(containersWithHeader.canFind(header.type)){
+                bool foundAny = false;
+                static foreach(containerName; containersWithHeader){
+                    if(!foundAny && containerName == header.type){
+                        alias ContainerType = AtomFromName!containerName;
+                        auto containerWithHeader = toContainerWithHeader!ContainerType(header);
+                        prettyPrint!ContainerType(containerWithHeader.containerHeader, level);
+                        containerWithHeader.children.each!( atom => dumpHelper(atom, level + 1));
+                        foundAny = true;
+                    }
+                }
+                assert(foundAny);
             }
         }
 
@@ -487,15 +567,13 @@ struct MP4 {
     }
 
     void dumpAtom(AtomHeader header, int indentLevel = 0){
-        alias thisModule = __traits(parent, NamedAtom);
-        alias namedAtoms = getSymbolsByUDA!(thisModule, NamedAtom);
-        pragma(msg, "num named atoms: ");
-        pragma(msg, namedAtoms.length);
+        //        pragma(msg, "num named atoms: ");
+        //        pragma(msg, namedAtoms.length);
         bool foundAny = false;
         static foreach(i, atomType; namedAtoms){
             pragma(msg, namedAtoms[i]);
             if(!foundAny && header.type == getUDAs!(atomType, NamedAtom)[0].name){{
-                    auto atomBody = atomData!atomType(header);
+                    auto atomBody = mapAtomContents!atomType(header);
                     prettyPrint!atomType(atomBody, indentLevel);
 
                 static foreach(j, symbol; getSymbolsByUDA!(atomType, ArrayOf)){{
