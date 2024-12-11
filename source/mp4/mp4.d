@@ -198,6 +198,171 @@ struct avc1DescriptionLayout{
 
 }
 
+@NamedAtom("avcC")
+struct avcC{
+    //payload is one of the structs below
+    //this might not need to exist?
+}
+
+// From ISO 14496 part 15 (the H264 standard)
+// Truely nightmarish format
+struct AvcDecoderConfigurationRecord {
+    ubyte configurationVersion;
+    ubyte avcProfileIndication;
+    ubyte profileCompatibility;
+    ubyte avcLevelIndication;
+    ubyte lengthMinus1; //encoded with 6 upper bits set to 1, so only 2 bits used
+    ubyte numSequenceParameterSets; //top 3 bits set to 1, lower 5 used
+
+    //variably sized sequence parameter set:
+    // format is a ushort of number of bytes, then the variable sized value
+    ubyte[][] sequenceParameterSetNALUnits;
+
+    ubyte numPictureElementSets;
+    //same as above, each element prefixed with size as a ubyte
+    ubyte[][] pictureParameterSetNALUnits;
+
+    //optional part for profileIndications of 100, 110, 122, or 144
+
+    ubyte chromaFormat; //upper 6 bits set to 1's
+    ubyte bitDepthLumaMinus8; //top 5 bits set to 1
+    ubyte bitDepthChromaMinus8; //same
+    ubyte numSequenceParameterSetExtensions;
+
+    //each prefixed with ushort length
+    ubyte[][] sequenceParameterSetExtNALUnits;
+
+
+    this(ubyte[] data){
+        import std.bitmanip;
+        configurationVersion = data.read!ubyte;
+        avcProfileIndication = data.read!ubyte;
+        profileCompatibility = data.read!ubyte;
+        avcLevelIndication = data.read!ubyte;
+
+        lengthMinus1 = data.read!ubyte;
+        assert((lengthMinus1 & 0xFC0) != 0);
+        lengthMinus1 &= 3;
+
+        numSequenceParameterSets = data.read!ubyte;
+        assert((numSequenceParameterSets & 0xE0) != 0);
+        numSequenceParameterSets &= 0x1F;
+
+        foreach(i; 0 .. numSequenceParameterSets){
+            ushort size = data.read!ushort;
+            sequenceParameterSetNALUnits ~= data[0 .. size];
+            data = data[size .. $];
+        }
+
+        numPictureElementSets = data.read!ubyte;
+        foreach(i; 0 .. numPictureElementSets){
+            ushort size = data.read!ushort;
+            pictureParameterSetNALUnits ~= data[0 .. size];
+            data = data[size .. $];
+        }
+
+        if([110, 110, 122, 144].canFind(avcProfileIndication)){
+
+            chromaFormat = data.read!ubyte;
+            assert(chromaFormat & 0xFC);
+            chromaFormat &= 0x3;
+
+            bitDepthLumaMinus8 = data.read!ubyte;
+            assert(bitDepthLumaMinus8 & 0xF8);
+            bitDepthLumaMinus8 &= 7;
+
+            bitDepthChromaMinus8 = data.read!ubyte;
+            assert(bitDepthChromaMinus8 & 0xF8);
+            bitDepthChromaMinus8 &= 7;
+
+            numSequenceParameterSetExtensions = data.read!ubyte;
+            foreach(i; 0 ..numSequenceParameterSetExtensions){
+                ushort size = data.read!ushort;
+                sequenceParameterSetExtNALUnits ~= data[0 .. size];
+                data = data[size .. $];
+            }
+        }
+
+        assert(data.length == 0);
+
+    }
+}
+
+
+@NamedAtom("colr")
+struct ColorParameterLayout{
+    char[4] parameterType; //should be "nclc" or "nclx"
+    ushort primariesIndex; // shoudl be 1
+    ushort transferFunctionIndex; // should be 1
+    ushort matrixIndex; //should be 1
+    ubyte swingType; // ??? ,only for NCLX, probably missing for NCL
+}
+
+@NamedAtom("fiel")
+struct FieldHandlingLayoud{
+    ubyte fieldCount; //1 or 2
+    ubyte fieldOrdering; // probably not used
+}
+
+@NamedAtom("chrm")
+struct ChromticityLayout {
+    ushort noIdea; //?? couldn't find doc for it
+}
+
+
+//mp4a audio stuff
+// I think this?  https://developer.apple.com/documentation/quicktime-file-format/sound_sample_description_version_0
+@NamedAtom("mp4a")
+struct mp4aDescriptionLayout {
+    ubyte[6] reserved; // must be 0
+    ushort dataReferenceIndex;
+    ushort version_;
+    ushort revisionLevel;
+    char[4] vendor;
+    ushort numChannels;
+    ushort sampleSize;
+    ushort compressionID;
+    ushort packetSize;
+    uint sampleRate; //16.16 fixed point, 0xBB80.0000 == 48khz
+}
+
+
+
+/*
+class DecoderConfigDescriptor extends BaseDescriptor : bit(8) tag=DecoderConfigDescrTag {
+   bit(8) objectTypeIndication; //should be value 3 (ES_DescriptorTag)
+   //next is the weirdly encoded length keep reading bytes until the MSb is 0
+   //concatenate the lower 7 bits of each
+   // in this example, we seem to get 0x80808022 (the top 3 are basically padding then the last one counts)
+   // 16 bit ES_ID , 0 in my case
+   // stream dependency, url, ocr stream flags, then 5 bits padding
+
+   //2 optional ushorts for based on the previous flags, 0 in our case
+
+   //then this stuff ?? apparently not...
+
+   bit(6) streamType;
+   bit(1) upStream;
+   const bit(1) reserved=1;
+   bit(24) bufferSizeDB;
+   bit(32) maxBitrate;
+   bit(32) avgBitrate;
+   DecoderSpecificInfo decSpecificInfo[0 .. 1];
+   profileLevelIndicationIndexDescriptor profileLevelIndicationIndexDescr [0..255];
+}
+
+found here https://github.com/mono/taglib-sharp/issues/146#issuecomment-464824047
+
+better reference: https://chromium.googlesource.com/chromium/src/media/+/16ba1c56b860d53d7354c0ec9538650cf1f20e2d/mp4/es_descriptor.cc
+*/
+
+@NamedAtom("esds")
+struct AppleAudioDecoderConfig {
+    ubyte version_;
+    ubyte[3] flags;
+}
+
+
 @NamedAtom("stts")
 struct TimeToSampleLayout {
     ubyte version_;
@@ -346,7 +511,7 @@ bool isContainerAtom(T)(auto ref T name){
     return containers.canFind(name);
 }
 
-static const containersWithHeader = ["avc1", "stsd"];
+static const containersWithHeader = ["avc1", "mp4a", "stsd"];
 
 
 auto named(HeaderRange)(HeaderRange headers, string name)
@@ -463,6 +628,10 @@ struct MP4 {
         return data[ah.offset + 8 .. ah.offset + ah.size].remapped!T;
     }
 
+
+    ubyte[] payload(AtomHeader ah){
+        return data[ah.offset + 8 .. ah.offset + ah.size];
+    }
 
 
 
